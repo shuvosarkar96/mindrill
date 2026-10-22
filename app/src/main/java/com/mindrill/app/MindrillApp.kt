@@ -32,7 +32,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-fun MindrillApp() {
+fun MainScaffold() {
     var selected by rememberSaveable { mutableStateOf(Tab.Home) }
 
     Scaffold(
@@ -54,11 +54,14 @@ fun MindrillApp() {
             }
         }
     ) { padding ->
-        Box(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(selected.label, style = MaterialTheme.typography.headlineMedium)
+        when (selected) {
+            Tab.Home -> MarketplaceTab(modifier = Modifier.padding(padding))
+            else -> Box(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(selected.label, style = MaterialTheme.typography.headlineMedium)
+            }
         }
     }
 }
