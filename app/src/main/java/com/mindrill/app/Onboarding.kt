@@ -26,6 +26,7 @@ enum class Stage { Welcome, Consent, Identity, Otp, Main }
 @Composable
 fun MindrillApp() {
     var stage by rememberSaveable { mutableStateOf(Stage.Welcome) }
+    var userName by rememberSaveable { mutableStateOf("") }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         when (stage) {
             Stage.Welcome -> WelcomeScreen(
@@ -38,13 +39,13 @@ fun MindrillApp() {
             )
             Stage.Identity -> IdentityScreen(
                 onBack = { stage = Stage.Consent },
-                onContinue = { stage = Stage.Otp }
+                onContinue = { name -> userName = name; stage = Stage.Otp }
             )
             Stage.Otp -> OtpScreen(
                 onBack = { stage = Stage.Identity },
                 onVerify = { stage = Stage.Main }
             )
-            Stage.Main -> MainScaffold()
+            Stage.Main -> MainScaffold(userName = userName, onLogout = { stage = Stage.Welcome })
         }
     }
 }
@@ -205,7 +206,7 @@ fun ConsentScreen(onBack: () -> Unit, onConfirm: () -> Unit) {
 }
 
 @Composable
-fun IdentityScreen(onBack: () -> Unit, onContinue: () -> Unit) {
+fun IdentityScreen(onBack: () -> Unit, onContinue: (String) -> Unit) {
     var name by rememberSaveable { mutableStateOf("") }
     var phone by rememberSaveable { mutableStateOf("") }
     StepScaffold(step = 1, onBack = onBack) {
@@ -236,7 +237,7 @@ fun IdentityScreen(onBack: () -> Unit, onContinue: () -> Unit) {
         PrimaryButton(
             "Continue",
             enabled = name.isNotBlank() && phone.filter { it.isDigit() }.length >= 10,
-            onClick = onContinue
+            onClick = { onContinue(name.trim()) }
         )
         Spacer(Modifier.height(16.dp))
     }
