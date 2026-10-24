@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.GridView
@@ -30,12 +31,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.Dp
 
 private enum class MarketScreen { Home, Categories, Detail }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MarketplaceTab(modifier: Modifier = Modifier, onInterested: (Product) -> Unit = {}) {
+fun MarketplaceTab(
+    modifier: Modifier = Modifier,
+    products: List<Product>,
+    savedIds: List<Int>,
+    onToggleSave: (Int) -> Unit,
+    onInterested: (Product) -> Unit = {}
+) {
     var screen by rememberSaveable { mutableStateOf(MarketScreen.Home) }
     var selectedId by rememberSaveable { mutableStateOf(-1) }
     var category by rememberSaveable { mutableStateOf<Category?>(null) }
@@ -46,6 +57,7 @@ fun MarketplaceTab(modifier: Modifier = Modifier, onInterested: (Product) -> Uni
     Box(modifier = modifier.fillMaxSize()) {
         when (screen) {
             MarketScreen.Home -> HomeScreen(
+                products = products,
                 category = category,
                 query = query,
                 onQuery = { query = it },
@@ -58,12 +70,14 @@ fun MarketplaceTab(modifier: Modifier = Modifier, onInterested: (Product) -> Uni
                 onPick = { category = it; screen = MarketScreen.Home }
             )
             MarketScreen.Detail -> {
-                val product = sampleProducts.firstOrNull { it.id == selectedId }
+                val product = products.firstOrNull { it.id == selectedId }
                 if (product == null) {
                     screen = MarketScreen.Home
                 } else {
                     ProductDetail(
                         product = product,
+                        saved = product.id in savedIds,
+                        onToggleSave = { onToggleSave(product.id) },
                         onBack = { screen = MarketScreen.Home },
                         onInterested = onInterested
                     )
@@ -83,9 +97,9 @@ private fun categoryColors(c: Category): Pair<Color, Color> {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HomeScreen(
+    products: List<Product>,
     category: Category?,
     query: String,
     onQuery: (String) -> Unit,
@@ -93,7 +107,7 @@ private fun HomeScreen(
     onOpenCategories: () -> Unit,
     onOpen: (Product) -> Unit
 ) {
-    val items = sampleProducts.filter {
+    val items = products.filter {
         (category == null || it.category == category) && it.name.contains(query, ignoreCase = true)
     }
     Column(modifier = Modifier.fillMaxSize()) {
@@ -156,16 +170,11 @@ private fun ProductCard(product: Product, onClick: () -> Unit) {
     val (container, content) = categoryColors(product.category)
     OutlinedCard(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Column(modifier = Modifier.padding(8.dp)) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(110.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(container),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(product.category.icon, contentDescription = null, modifier = Modifier.size(48.dp), tint = content)
-            }
+            ProductPhoto(
+                product,
+                Modifier.fillMaxWidth().height(110.dp).clip(RoundedCornerShape(12.dp)),
+                48.dp
+            )
             Spacer(Modifier.height(8.dp))
             Text(
                 product.name,
@@ -228,22 +237,25 @@ private fun CategoriesScreen(onBack: () -> Unit, onPick: (Category) -> Unit) {
 }
 
 @Composable
-private fun ProductDetail(product: Product, onBack: () -> Unit, onInterested: (Product) -> Unit) {
+private fun ProductDetail(
+    product: Product,
+    saved: Boolean,
+    onToggleSave: () -> Unit,
+    onBack: () -> Unit,
+    onInterested: (Product) -> Unit
+) {
     val (container, content) = categoryColors(product.category)
     Column(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-            Box(
-                modifier = Modifier.fillMaxWidth().height(240.dp).background(container)
-            ) {
-                IconButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart).padding(8.dp)) {
+            Box(modifier = Modifier.fillMaxWidth().height(240.dp)) {
+                ProductPhoto(product, Modifier.fillMaxSize(), 110.dp)
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+                    colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
-                Icon(
-                    product.category.icon,
-                    contentDescription = null,
-                    modifier = Modifier.align(Alignment.Center).size(110.dp),
-                    tint = content
-                )
             }
             Column(modifier = Modifier.padding(24.dp)) {
                 Text(product.priceLabel(), fontSize = 26.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
@@ -288,8 +300,12 @@ private fun ProductDetail(product: Product, onBack: () -> Unit, onInterested: (P
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { }) {
-                Icon(Icons.Filled.BookmarkBorder, contentDescription = "Save")
+            IconButton(onClick = onToggleSave) {
+                Icon(
+                    if (saved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                    contentDescription = "Save",
+                    tint = if (saved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                )
             }
             Spacer(Modifier.width(8.dp))
             Button(
@@ -301,6 +317,27 @@ private fun ProductDetail(product: Product, onBack: () -> Unit, onInterested: (P
                 Spacer(Modifier.width(8.dp))
                 Text("I'm interested", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
+        }
+    }
+}
+
+@Composable
+private fun ProductPhoto(product: Product, modifier: Modifier, iconSize: Dp) {
+    val context = LocalContext.current
+    val resId = remember(product.id) {
+        context.resources.getIdentifier("p_${product.id}", "drawable", context.packageName)
+    }
+    val (container, content) = categoryColors(product.category)
+    Box(modifier = modifier.background(container), contentAlignment = Alignment.Center) {
+        if (resId != 0) {
+            Image(
+                painter = painterResource(resId),
+                contentDescription = product.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Icon(product.category.icon, contentDescription = null, modifier = Modifier.size(iconSize), tint = content)
         }
     }
 }

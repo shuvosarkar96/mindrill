@@ -1,8 +1,5 @@
 package com.mindrill.app
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Home
@@ -11,9 +8,10 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.layout.padding
 
 enum class Tab(val label: String, val icon: ImageVector) {
     Home("Home", Icons.Filled.Home),
@@ -23,12 +21,24 @@ enum class Tab(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-fun MainScaffold(userName: String = "", onLogout: () -> Unit = {}) {
+fun MainScaffold(
+    userName: String = "",
+    onLogout: () -> Unit = {},
+    darkMode: Boolean = false,
+    onDarkMode: (Boolean) -> Unit = {}
+) {
+    val context = LocalContext.current
+    val prefs = remember { Prefs(context) }
     var selected by rememberSaveable { mutableStateOf(Tab.Home) }
     var openChatId by rememberSaveable { mutableStateOf<String?>(null) }
     val conversations = remember {
         mutableStateListOf<Conversation>().apply { addAll(sampleConversations()) }
     }
+    val myListings = remember { mutableStateListOf<Product>().apply { addAll(prefs.loadListings()) } }
+    val savedIds = remember { mutableStateListOf<Int>().apply { addAll(prefs.loadSaved()) } }
+
+    val ownName = userName.ifBlank { "You" }
+    val products = myListings.toList() + sampleProducts
 
     fun openChat(id: String?) {
         openChatId = id
@@ -51,6 +61,7 @@ fun MainScaffold(userName: String = "", onLogout: () -> Unit = {}) {
     }
 
     fun interested(product: Product) {
+        if (product.seller == ownName) return
         val text = "Hello, I am interested in ${product.name} (${product.priceLabel()})."
         val i = conversations.indexOfFirst { it.id == product.seller }
         if (i >= 0) {
@@ -67,6 +78,20 @@ fun MainScaffold(userName: String = "", onLogout: () -> Unit = {}) {
         }
         selected = Tab.Chats
         openChat(product.seller)
+    }
+
+    fun toggleSave(id: Int) {
+        if (id in savedIds) savedIds.remove(id) else savedIds.add(id)
+        prefs.saveSaved(savedIds)
+    }
+
+    fun addListing(name: String, price: Int, category: Category, details: String) {
+        val id = (products.maxOfOrNull { it.id } ?: 0) + 1
+        myListings.add(
+            0,
+            Product(id, name, price, category, ownName, "Listed by you", details.ifBlank { "No extra details." })
+        )
+        prefs.saveListings(myListings)
     }
 
     val inConversation = selected == Tab.Chats && openChatId != null
@@ -95,6 +120,9 @@ fun MainScaffold(userName: String = "", onLogout: () -> Unit = {}) {
         when (selected) {
             Tab.Home -> MarketplaceTab(
                 modifier = Modifier.padding(padding),
+                products = products,
+                savedIds = savedIds.toList(),
+                onToggleSave = { toggleSave(it) },
                 onInterested = { interested(it) }
             )
             Tab.Maps -> MapsTab(modifier = Modifier.padding(padding))
@@ -108,6 +136,12 @@ fun MainScaffold(userName: String = "", onLogout: () -> Unit = {}) {
             Tab.Profile -> ProfileTab(
                 modifier = Modifier.padding(padding),
                 userName = userName,
+                myListings = myListings.toList(),
+                savedProducts = products.filter { it.id in savedIds },
+                darkMode = darkMode,
+                onDarkMode = onDarkMode,
+                onToggleSave = { toggleSave(it) },
+                onAddListing = { n, p, c, d -> addListing(n, p, c, d) },
                 onLogout = onLogout,
                 onOpenMarket = { selected = Tab.Home },
                 onOpenMaps = { selected = Tab.Maps }

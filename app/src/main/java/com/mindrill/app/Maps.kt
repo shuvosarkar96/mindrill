@@ -23,6 +23,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -30,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+
 
 enum class PlaceType(val label: String, val icon: ImageVector) {
     Mine("Mine", Icons.Filled.Landscape),
@@ -67,16 +70,20 @@ private fun openInMaps(context: Context, p: MapPlace) {
 fun MapsTab(modifier: Modifier = Modifier) {
     var filter by rememberSaveable { mutableStateOf(MapFilter.All) }
     var selectedName by rememberSaveable { mutableStateOf<String?>(null) }
-    val context = LocalContext.current
+    var routeName by rememberSaveable { mutableStateOf<String?>(null) }
 
     val visible = placesFor(filter)
     val selected = visible.firstOrNull { it.name == selectedName }
+    val routePlace = mapPlaces.firstOrNull { it.name == routeName }
+    val route = routePlace?.let { findRoute(it) }
 
     val land = MaterialTheme.colorScheme.surfaceVariant
     val landLine = MaterialTheme.colorScheme.outline
     val water = MaterialTheme.colorScheme.secondaryContainer
     val mineColor = MaterialTheme.colorScheme.primary
     val marketColor = MaterialTheme.colorScheme.tertiary
+    val routeColor = MaterialTheme.colorScheme.secondary
+    val youColor = MaterialTheme.colorScheme.onSurface
 
     Column(modifier = modifier.fillMaxSize()) {
         Text(
@@ -92,7 +99,7 @@ fun MapsTab(modifier: Modifier = Modifier) {
             MapFilter.entries.forEach { f ->
                 FilterChip(
                     selected = filter == f,
-                    onClick = { filter = f; selectedName = null },
+                    onClick = { filter = f; selectedName = null; routeName = null },
                     label = { Text("${f.label} (${placesFor(f).size})") }
                 )
             }
@@ -122,8 +129,10 @@ fun MapsTab(modifier: Modifier = Modifier) {
                                 (Offset(hit.x * size.width, hit.y * size.height) - tap).getDistance() <= limit
                             ) {
                                 selectedName = hit.name
+                                if (routeName != hit.name) routeName = null
                             } else {
                                 selectedName = null
+                                routeName = null
                             }
                         }
                     }
@@ -137,6 +146,24 @@ fun MapsTab(modifier: Modifier = Modifier) {
                 }
                 drawPath(path, land)
                 drawPath(path, landLine, style = Stroke(width = 2.dp.toPx()))
+
+                if (route != null) {
+                    val rp = Path().apply {
+                        route.points.forEachIndexed { i, (px, py) ->
+                            val o = Offset(px * size.width, py * size.height)
+                            if (i == 0) moveTo(o.x, o.y) else lineTo(o.x, o.y)
+                        }
+                    }
+                    drawPath(
+                        rp, Color.White,
+                        style = Stroke(width = 9.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    )
+                    drawPath(
+                        rp, routeColor,
+                        style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    )
+                }
+
                 visible.forEach { p ->
                     val c = Offset(p.x * size.width, p.y * size.height)
                     val col = if (p.type == PlaceType.Mine) mineColor else marketColor
@@ -144,18 +171,24 @@ fun MapsTab(modifier: Modifier = Modifier) {
                     drawCircle(Color.White, r + 2.dp.toPx(), c)
                     drawCircle(col, r, c)
                 }
+
+                val you = Offset(startPoint.first * size.width, startPoint.second * size.height)
+                drawCircle(Color.White, 9.dp.toPx(), you)
+                drawCircle(youColor, 6.dp.toPx(), you)
             }
         }
 
         if (selected != null) {
             PlaceCard(
                 place = selected,
-                onClose = { selectedName = null },
-                onNavigate = { openInMaps(context, selected) }
+                route = if (routeName == selected.name) route else null,
+                onClose = { selectedName = null; routeName = null },
+                onDirections = { routeName = selected.name },
+                onEnd = { routeName = null }
             )
         } else {
             Text(
-                "Tap a pin to see details. Locations are sample data.",
+                "Tap a pin to see details. The dark dot is your fixed start (Dhaka). Locations are sample data.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp)
@@ -165,7 +198,13 @@ fun MapsTab(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun PlaceCard(place: MapPlace, onClose: () -> Unit, onNavigate: () -> Unit) {
+private fun PlaceCard(
+    place: MapPlace,
+    route: RouteResult?,
+    onClose: () -> Unit,
+    onDirections: () -> Unit,
+    onEnd: () -> Unit
+) {
     val tint = if (place.type == PlaceType.Mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
     val bg = if (place.type == PlaceType.Mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.tertiaryContainer
     OutlinedCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -191,14 +230,42 @@ private fun PlaceCard(place: MapPlace, onClose: () -> Unit, onNavigate: () -> Un
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Button(
-                onClick = onNavigate,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(24.dp)
-            ) {
-                Icon(Icons.Filled.Directions, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Navigate in Maps app", fontWeight = FontWeight.Bold)
+            if (route != null) {
+                Text(
+                    "${route.km} km  |  about ${durationLabel(route.minutes)}",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.height(4.dp))
+                val viaText = if (route.via.isEmpty()) "Direct road" else "Via " + route.via.joinToString(", ")
+                Text(
+                    "From Dhaka (fixed start). $viaText.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    "Estimated along main roads.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = onEnd,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(24.dp)
+                ) {
+                    Text("End navigation", fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Button(
+                    onClick = onDirections,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(24.dp)
+                ) {
+                    Icon(Icons.Filled.Directions, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Get directions", fontWeight = FontWeight.Bold)
+                }
             }
         }
     }

@@ -20,32 +20,60 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.platform.LocalContext
+import com.mindrill.app.ui.theme.MindrillTheme
+import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 
 enum class Stage { Welcome, Consent, Identity, Otp, Main }
 
 @Composable
 fun MindrillApp() {
-    var stage by rememberSaveable { mutableStateOf(Stage.Welcome) }
-    var userName by rememberSaveable { mutableStateOf("") }
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        when (stage) {
-            Stage.Welcome -> WelcomeScreen(
-                onStart = { stage = Stage.Consent },
-                onLogin = { stage = Stage.Identity }
-            )
-            Stage.Consent -> ConsentScreen(
-                onBack = { stage = Stage.Welcome },
-                onConfirm = { stage = Stage.Identity }
-            )
-            Stage.Identity -> IdentityScreen(
-                onBack = { stage = Stage.Consent },
-                onContinue = { name -> userName = name; stage = Stage.Otp }
-            )
-            Stage.Otp -> OtpScreen(
-                onBack = { stage = Stage.Identity },
-                onVerify = { stage = Stage.Main }
-            )
-            Stage.Main -> MainScaffold(userName = userName, onLogout = { stage = Stage.Welcome })
+    val context = LocalContext.current
+    val prefs = remember { Prefs(context) }
+    val systemDark = isSystemInDarkTheme()
+    var dark by rememberSaveable { mutableStateOf(prefs.darkOrNull() ?: systemDark) }
+    var stage by rememberSaveable {
+        mutableStateOf(if (prefs.loggedIn) Stage.Main else Stage.Welcome)
+    }
+    var userName by rememberSaveable { mutableStateOf(prefs.userName) }
+
+    MindrillTheme(darkTheme = dark) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            when (stage) {
+                Stage.Welcome -> WelcomeScreen(
+                    onStart = { stage = Stage.Consent },
+                    onLogin = { stage = Stage.Identity }
+                )
+                Stage.Consent -> ConsentScreen(
+                    onBack = { stage = Stage.Welcome },
+                    onConfirm = { stage = Stage.Identity }
+                )
+                Stage.Identity -> IdentityScreen(
+                    onBack = { stage = Stage.Consent },
+                    onContinue = { name -> userName = name; stage = Stage.Otp }
+                )
+                Stage.Otp -> OtpScreen(
+                    onBack = { stage = Stage.Identity },
+                    onVerify = {
+                        prefs.loggedIn = true
+                        prefs.userName = userName
+                        stage = Stage.Main
+                    }
+                )
+                Stage.Main -> MainScaffold(
+                    userName = userName,
+                    onLogout = {
+                        prefs.loggedIn = false
+                        stage = Stage.Welcome
+                    },
+                    darkMode = dark,
+                    onDarkMode = { dark = it; prefs.setDark(it) }
+                )
+            }
         }
     }
 }
@@ -246,25 +274,63 @@ fun IdentityScreen(onBack: () -> Unit, onContinue: (String) -> Unit) {
 @Composable
 fun OtpScreen(onBack: () -> Unit, onVerify: () -> Unit) {
     var code by rememberSaveable { mutableStateOf("") }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+
     StepScaffold(step = 2, onBack = onBack) {
         Text("Enter the code", fontSize = 28.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text("We sent a 6-digit code to your phone.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(32.dp))
-        OutlinedTextField(
+        BasicTextField(
             value = code,
             onValueChange = { if (it.length <= 6 && it.all { c -> c.isDigit() }) code = it },
-            label = { Text("6-digit code") },
-            singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth()
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().focusRequester(focus),
+            decorationBox = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    repeat(6) { i ->
+                        val active = i == code.length
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(56.dp)
+                                .border(
+                                    width = if (active) 2.dp else 1.dp,
+                                    color = if (active) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.outlineVariant,
+                                    shape = RoundedCornerShape(12.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                code.getOrNull(i)?.toString() ?: "",
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(16.dp))
+        Text(
+            "Resend code in 2:59",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(8.dp))
         Text(
             "Demo mode: any 6 digits will work for now.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodySmall
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center
         )
         Spacer(Modifier.weight(1f))
         PrimaryButton("Verify and continue", enabled = code.length == 6, onClick = onVerify)
