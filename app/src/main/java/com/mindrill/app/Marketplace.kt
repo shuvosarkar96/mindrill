@@ -36,6 +36,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
+import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.asImageBitmap
 
 private enum class MarketScreen { Home, Categories, Detail }
 
@@ -322,22 +324,30 @@ private fun ProductDetail(
 }
 
 @Composable
-private fun ProductPhoto(product: Product, modifier: Modifier, iconSize: Dp) {
+fun ProductPhoto(product: Product, modifier: Modifier, iconSize: Dp) {
     val context = LocalContext.current
     val resId = remember(product.id) {
         context.resources.getIdentifier("p_${product.id}", "drawable", context.packageName)
     }
+    val bitmap = remember(product.imagePath) {
+        product.imagePath?.let { BitmapFactory.decodeFile(it)?.asImageBitmap() }
+    }
     val (container, content) = categoryColors(product.category)
     Box(modifier = modifier.background(container), contentAlignment = Alignment.Center) {
-        if (resId != 0) {
-            Image(
+        when {
+            bitmap != null -> Image(
+                bitmap = bitmap,
+                contentDescription = product.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            resId != 0 -> Image(
                 painter = painterResource(resId),
                 contentDescription = product.name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
-        } else {
-            Icon(product.category.icon, contentDescription = null, modifier = Modifier.size(iconSize), tint = content)
+            else -> Icon(product.category.icon, contentDescription = null, modifier = Modifier.size(iconSize), tint = content)
         }
     }
 }

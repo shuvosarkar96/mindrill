@@ -25,7 +25,8 @@ data class Product(
     val category: Category,
     val seller: String,
     val condition: String,
-    val details: String
+    val details: String,
+    val imagePath: String? = null
 )
 
 fun Product.priceLabel(): String =

@@ -1,6 +1,11 @@
 package com.mindrill.app
 
+import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -9,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -17,6 +23,8 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Store
@@ -28,7 +36,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -45,7 +56,9 @@ fun ProfileTab(
     darkMode: Boolean,
     onDarkMode: (Boolean) -> Unit,
     onToggleSave: (Int) -> Unit,
-    onAddListing: (String, Int, Category, String) -> Unit,
+    onAddListing: (String, Int, Category, String, String?) -> Unit,
+    onUpdateListing: (Int, String, Int, Category, String, String?) -> Unit,
+    onDeleteListing: (Int) -> Unit,
     onLogout: () -> Unit,
     onOpenMarket: () -> Unit,
     onOpenMaps: () -> Unit
@@ -61,7 +74,9 @@ fun ProfileTab(
             onSettings = { screen = ProfileScreen.Settings },
             onLogout = onLogout
         )
-        ProfileScreen.Listings -> ListingsScreen(modifier, myListings, onAddListing) { screen = ProfileScreen.Main }
+        ProfileScreen.Listings -> ListingsScreen(
+            modifier, myListings, onAddListing, onUpdateListing, onDeleteListing
+        ) { screen = ProfileScreen.Main }
         ProfileScreen.Saved -> SavedScreen(modifier, savedProducts, onToggleSave) { screen = ProfileScreen.Main }
         ProfileScreen.Settings -> SettingsScreen(modifier, darkMode, onDarkMode) { screen = ProfileScreen.Main }
     }
@@ -149,12 +164,11 @@ private fun SubHeader(title: String, onBack: () -> Unit) {
 private fun ProductRow(product: Product, trailing: @Composable () -> Unit = {}) {
     OutlinedCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(product.category.icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            }
+            ProductPhoto(
+                product,
+                Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)),
+                24.dp
+            )
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(product.name, fontWeight = FontWeight.Bold)
@@ -173,14 +187,19 @@ private fun ProductRow(product: Product, trailing: @Composable () -> Unit = {}) 
 private fun ListingsScreen(
     modifier: Modifier,
     listings: List<Product>,
-    onAddListing: (String, Int, Category, String) -> Unit,
+    onAdd: (String, Int, Category, String, String?) -> Unit,
+    onUpdate: (Int, String, Int, Category, String, String?) -> Unit,
+    onDelete: (Int) -> Unit,
     onBack: () -> Unit
 ) {
-    var showDialog by remember { mutableStateOf(false) }
+    var showAdd by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<Product?>(null) }
+    var deleting by remember { mutableStateOf<Product?>(null) }
+
     Column(modifier = modifier.fillMaxSize()) {
         SubHeader("My listings", onBack)
         Button(
-            onClick = { showDialog = true },
+            onClick = { showAdd = true },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(48.dp)
         ) {
             Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(20.dp))
@@ -196,27 +215,111 @@ private fun ListingsScreen(
             )
         } else {
             LazyColumn {
-                items(listings, key = { it.id }) { p -> ProductRow(p) }
+                items(listings, key = { it.id }) { p ->
+                    ProductRow(p) {
+                        IconButton(onClick = { editing = p }) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Edit")
+                        }
+                        IconButton(onClick = { deleting = p }) {
+                            Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
             }
         }
     }
-    if (showDialog) {
-        AddListingDialog(onDismiss = { showDialog = false }, onSave = onAddListing)
+
+    if (showAdd) {
+        ListingDialog(initial = null, onDismiss = { showAdd = false }, onSave = onAdd)
+    }
+    editing?.let { p ->
+        ListingDialog(
+            initial = p,
+            onDismiss = { editing = null },
+            onSave = { n, pr, c, d, img -> onUpdate(p.id, n, pr, c, d, img) }
+        )
+    }
+    deleting?.let { p ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text("Delete listing?") },
+            text = { Text("\"${p.name}\" will be removed from your listings.") },
+            confirmButton = {
+                TextButton(onClick = { onDelete(p.id); deleting = null }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } }
+        )
     }
 }
 
 @Composable
-private fun AddListingDialog(onDismiss: () -> Unit, onSave: (String, Int, Category, String) -> Unit) {
-    var name by remember { mutableStateOf("") }
-    var price by remember { mutableStateOf("") }
-    var details by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf(Category.Tools) }
+private fun ListingDialog(
+    initial: Product?,
+    onDismiss: () -> Unit,
+    onSave: (String, Int, Category, String, String?) -> Unit
+) {
+    val context = LocalContext.current
+    var name by remember { mutableStateOf(initial?.name ?: "") }
+    var price by remember { mutableStateOf(initial?.priceUsd?.toString() ?: "") }
+    var details by remember {
+        mutableStateOf(initial?.details?.takeIf { it != "No extra details." } ?: "")
+    }
+    var category by remember { mutableStateOf(initial?.category ?: Category.Tools) }
+    var imagePath by remember { mutableStateOf(initial?.imagePath) }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            val saved = saveImageFromUri(context, uri)
+            if (saved != null) {
+                if (imagePath != null && imagePath != initial?.imagePath) deleteImageFile(imagePath)
+                imagePath = saved
+            }
+        }
+    }
+
+    fun cancel() {
+        if (imagePath != initial?.imagePath) deleteImageFile(imagePath)
+        onDismiss()
+    }
+
     val priceInt = price.toIntOrNull()
+    val preview = remember(imagePath) { imagePath?.let { BitmapFactory.decodeFile(it)?.asImageBitmap() } }
+
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add listing") },
+        onDismissRequest = { cancel() },
+        title = { Text(if (initial == null) "Add listing" else "Edit listing") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (preview != null) {
+                    Image(
+                        bitmap = preview,
+                        contentDescription = "Listing photo",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(
+                        onClick = {
+                            picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        }
+                    ) { Text(if (imagePath == null) "Choose photo" else "Change photo") }
+                    if (imagePath != null) {
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(
+                            onClick = {
+                                if (imagePath != initial?.imagePath) deleteImageFile(imagePath)
+                                imagePath = null
+                            }
+                        ) { Text("Remove") }
+                    }
+                }
                 OutlinedTextField(
                     value = name, onValueChange = { name = it },
                     label = { Text("Product name") }, singleLine = true
@@ -243,13 +346,13 @@ private fun AddListingDialog(onDismiss: () -> Unit, onSave: (String, Int, Catego
         confirmButton = {
             TextButton(
                 onClick = {
-                    onSave(name.trim(), priceInt ?: 0, category, details.trim())
+                    onSave(name.trim(), priceInt ?: 0, category, details.trim(), imagePath)
                     onDismiss()
                 },
                 enabled = name.isNotBlank() && priceInt != null
             ) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = { cancel() }) { Text("Cancel") } }
     )
 }
 

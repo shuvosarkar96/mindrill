@@ -85,13 +85,44 @@ fun MainScaffold(
         prefs.saveSaved(savedIds)
     }
 
-    fun addListing(name: String, price: Int, category: Category, details: String) {
+    fun addListing(name: String, price: Int, category: Category, details: String, imagePath: String?) {
         val id = (products.maxOfOrNull { it.id } ?: 0) + 1
         myListings.add(
             0,
-            Product(id, name, price, category, ownName, "Listed by you", details.ifBlank { "No extra details." })
+            Product(
+                id, name, price, category, ownName, "Listed by you",
+                details.ifBlank { "No extra details." }, imagePath
+            )
         )
         prefs.saveListings(myListings)
+    }
+
+    fun updateListing(
+        id: Int, name: String, price: Int, category: Category, details: String, imagePath: String?
+    ) {
+        val i = myListings.indexOfFirst { it.id == id }
+        if (i >= 0) {
+            val old = myListings[i]
+            if (old.imagePath != null && old.imagePath != imagePath) deleteImageFile(old.imagePath)
+            myListings[i] = old.copy(
+                name = name, priceUsd = price, category = category,
+                details = details.ifBlank { "No extra details." }, imagePath = imagePath
+            )
+            prefs.saveListings(myListings)
+        }
+    }
+
+    fun deleteListing(id: Int) {
+        val i = myListings.indexOfFirst { it.id == id }
+        if (i >= 0) {
+            deleteImageFile(myListings[i].imagePath)
+            myListings.removeAt(i)
+            prefs.saveListings(myListings)
+        }
+        if (id in savedIds) {
+            savedIds.remove(id)
+            prefs.saveSaved(savedIds)
+        }
     }
 
     val inConversation = selected == Tab.Chats && openChatId != null
@@ -141,7 +172,9 @@ fun MainScaffold(
                 darkMode = darkMode,
                 onDarkMode = onDarkMode,
                 onToggleSave = { toggleSave(it) },
-                onAddListing = { n, p, c, d -> addListing(n, p, c, d) },
+                onAddListing = { n, p, c, d, img -> addListing(n, p, c, d, img) },
+                onUpdateListing = { id, n, p, c, d, img -> updateListing(id, n, p, c, d, img) },
+                onDeleteListing = { deleteListing(it) },
                 onLogout = onLogout,
                 onOpenMarket = { selected = Tab.Home },
                 onOpenMaps = { selected = Tab.Maps }
